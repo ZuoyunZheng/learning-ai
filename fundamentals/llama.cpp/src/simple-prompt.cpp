@@ -12,25 +12,25 @@ const char* GREEN = "\033[0;32m";
 const char* ORANGE = "\033[0;33m";
 const char* RESET = "\033[0m";
 
-std::string token_as_string(llama_model* model, llama_token token) {
+std::string token_as_string(const llama_vocab* vocab, llama_token token) {
     int lsplit = 0;
     bool special = false;
     std::vector<char> piece(8, 0);
-    int n_tokens = llama_token_to_piece(model, token, piece.data(), piece.size(), lsplit, special);
+    int n_tokens = llama_token_to_piece(vocab, token, piece.data(), piece.size(), lsplit, special);
     if (n_tokens < 0) {
         piece.resize(-n_tokens);
-        llama_token_to_piece(model, token, piece.data(), piece.size(), lsplit, special);
+        llama_token_to_piece(vocab, token, piece.data(), piece.size(), lsplit, special);
     } else {
         piece.resize(n_tokens);
     }
     return std::string(piece.data(), piece.size());
 }
 
-void print_top_logits(llama_model* model, llama_context* ctx) {
+void print_top_logits(const llama_vocab* vocab, llama_context* ctx) {
     float* logits = llama_get_logits(ctx);
     printf("%sTop 5 logits:%s\n", BLUE, RESET);
     std::vector<std::pair<llama_token, float>> top_logits;
-    for (int i = 0; i < llama_n_vocab(model); i++) {
+    for (int i = 0; i < llama_n_vocab(vocab); i++) {
 	top_logits.push_back(std::make_pair(i, logits[i]));
     }
     std::partial_sort(top_logits.begin(), top_logits.begin() + 5, top_logits.end(),
@@ -42,7 +42,7 @@ void print_top_logits(llama_model* model, llama_context* ctx) {
         printf("%sToken %d (%s): %f%s\n",
             BLUE,
             top_logits[i].first,
-            token_as_string(model, top_logits[i].first).c_str(),
+            token_as_string(vocab, top_logits[i].first).c_str(),
             top_logits[i].second,
             RESET);
     }
@@ -81,6 +81,7 @@ int main(int argc, char** argv) {
     //llama_numa_init(GGML_NUMA_STRATEGY_DISABLED);
 
     llama_model* model = llama_load_model_from_file(model_path.c_str(), model_params);
+    const llama_vocab * vocab = llama_model_get_vocab(model);
     if (model == NULL) {
         fprintf(stderr , "%s: error: failed to to load model %s\n" , __func__, model_path.c_str());
         return 1;
@@ -105,14 +106,14 @@ int main(int argc, char** argv) {
     }
 
     // Tokenize the prompt.
-    const int add_bos_token = llama_add_bos_token(model);
+    const int add_bos_token = llama_add_bos_token(vocab);
     const bool add_bos  = add_bos_token != -1 ? bool(add_bos_token) :
-        (llama_vocab_type(model) == LLAMA_VOCAB_TYPE_SPM); // SPM = SentencePiece Model
+        (llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_SPM); // SPM = SentencePiece Model
 
     printf("%sprompt.len: %ld%s\n", ORANGE, prompt.length(), RESET);
     int n_tokens = prompt.length() + add_bos;
     std::vector<llama_token> input_tokens(n_tokens);
-    n_tokens = llama_tokenize(model,
+    n_tokens = llama_tokenize(vocab,
                               prompt.data(),
                               prompt.length(),
                               input_tokens.data(),
@@ -125,7 +126,7 @@ int main(int argc, char** argv) {
     // and call llama_tokenize again.
     if (n_tokens < 0) {
         input_tokens.resize(-n_tokens);
-        int new_len = llama_tokenize(model, prompt.data(), prompt.length(), input_tokens.data(), input_tokens.size(), add_bos, false);
+        int new_len = llama_tokenize(vocab, prompt.data(), prompt.length(), input_tokens.data(), input_tokens.size(), add_bos, false);
     } else {
         input_tokens.resize(n_tokens);
     }
@@ -197,7 +198,7 @@ int main(int argc, char** argv) {
 
 
     printf("%skv_cache_token count: %d%s\n", ORANGE, llama_get_kv_cache_token_count(ctx), RESET);
-    print_top_logits(model, ctx);
+    print_top_logits(vocab, ctx);
 
     // This is the total number of tokens that we will generate, which recall
     // includes our query tokens (they are all in the llm_batch).
@@ -206,7 +207,7 @@ int main(int argc, char** argv) {
 
     int n_cur = batch.n_tokens;
     int n_decode = batch.n_tokens;
-    int n_vocab = llama_n_vocab(model);
+    int n_vocab = llama_n_vocab(vocab);
 
     float* all_logits = llama_get_logits(ctx);
     // All the logits are stored in a 2d vector std::vector<float> logits
@@ -223,7 +224,7 @@ int main(int argc, char** argv) {
         // This is the token id that the model predicted.
 
         // is it an end of stream?
-        if (new_token_id == llama_token_eos(model) || n_cur == n_len) {
+        if (new_token_id == llama_token_eos(vocab) || n_cur == n_len) {
             fprintf(stderr, "\n");
             fflush(stderr);
             break;
@@ -237,14 +238,14 @@ int main(int argc, char** argv) {
         int lsplit = 0;
         bool special = false;
         std::vector<char> piece(8, 0);
-        int n_tokens = llama_token_to_piece(model, new_token_id, piece.data(), piece.size(), lsplit, special);
+        int n_tokens = llama_token_to_piece(vocab, new_token_id, piece.data(), piece.size(), lsplit, special);
         // llama_token_to_piece will return the negative length of the token if
         // it is longer that the passed in result.length. If that is the case
         // then we need to resize the result vector to the length of the token
         // and call llama_token_to_piece again.
         if (n_tokens < 0) {
             piece.resize(-n_tokens);
-            int new_len = llama_token_to_piece(model, new_token_id, piece.data(), piece.size(), lsplit, special);
+            int new_len = llama_token_to_piece(vocab, new_token_id, piece.data(), piece.size(), lsplit, special);
         } else {
             piece.resize(n_tokens);
         }
@@ -278,7 +279,7 @@ int main(int argc, char** argv) {
             fprintf(stderr, "%s : failed to eval, return code %d\n", __func__, 1);
             return 1;
         }
-        print_top_logits(model, ctx);
+        print_top_logits(vocab, ctx);
         llama_batch_free(single_token_batch);
     }
     fprintf(stdout, "\nDecoded %d tokens\n", n_decode);
