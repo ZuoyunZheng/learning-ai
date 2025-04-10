@@ -7,7 +7,7 @@ llama:
 	cd llama.cpp && cmake --build build
 
 llama-cuda: 
-	. ./cuda-env.sh && cd llama.cpp && cmake --build build -DGGML_CUDA=ON
+	. ./cuda-env.sh && cd llama.cpp && cmake -B build -DGGML_CUDA=ON && cmake --build build
 
 llama-vulkan:
 	. ./cuda-env.sh && cd llama.cpp && cmake --build build -DGGML_VULKAN=ON
@@ -96,8 +96,8 @@ logging-pre: src/logging.cpp
 run-simple-prompt: simple-prompt
 	./simple-prompt
 
-simple-prompt-cuda: OBJ += llama.cpp/ggml/src/ggml-cuda.o
-simple-prompt-cuda: CXXFLAGS += -std=c++11 -L${CUDA_DIR} -lcuda -lcublas -lculibos -lcudart -lcublasLt
+#simple-prompt-cuda: OBJ += llama.cpp/ggml/src/ggml-cuda.o
+simple-prompt-cuda: CXXFLAGS += -L${CUDA_DIR} -lcuda -lcublas -lculibos -lcudart -lcublasLt
 simple-prompt-cuda: LIBS += -lcuda -lcublas -lculibos -lcudart -lcublasLt
 simple-prompt-cuda: simple-prompt
 run-simple-prompt-cuda: simple-prompt-cuda
